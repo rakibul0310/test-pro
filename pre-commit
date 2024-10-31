@@ -1,0 +1,54 @@
+#!/bin/bash
+
+# Path to the protected file
+PROTECTED_FILE="index.js"
+
+# URL of the API endpoint to fetch the secret key
+API_URL="http://localhost:3002/pass"
+
+# Path to the checksum file (tracked in Git)
+CHECKSUM_FILE=".pre-commit-checksum"
+
+# Function to fetch the secret key from the API
+fetch_secret_key() {
+  curl -s "$API_URL"
+}
+
+# Calculate the current checksum of the pre-commit hook
+CURRENT_CHECKSUM=$(sha256sum "$0" | awk '{print $1}')
+STORED_CHECKSUM=""
+
+# Read the stored checksum if the file exists
+if [ -f "$CHECKSUM_FILE" ]; then
+  STORED_CHECKSUM=$(cat "$CHECKSUM_FILE")
+fi
+
+# Check if the pre-commit hook file has been modified by comparing checksums
+if [ "$CURRENT_CHECKSUM" != "$STORED_CHECKSUM" ]; then
+  # Fetch the expected secret key from the API
+  EXPECTED_KEY=$(fetch_secret_key)
+
+  # Prompt for the secret key
+  echo "The pre-commit hook has been modified. Please enter the secret key to proceed:"
+  
+  # Read the secret key input with visibility for debugging purposes
+  read -p "Secret key: " -s INPUT_KEY
+  echo
+
+  # Verify the secret key
+  if [ "$INPUT_KEY" != "$EXPECTED_KEY" ]; then
+    echo "Invalid secret key. Aborting changes."
+    exit 1
+  else
+    # Update the stored checksum if the key is correct
+    echo "$CURRENT_CHECKSUM" > "$CHECKSUM_FILE"
+    echo "Secret key accepted. Pre-commit hook updated."
+  fi
+fi
+
+# Check if the protected file has changes staged for commit
+if git diff --cached --name-only | grep -q "$PROTECTED_FILE"; then
+  # Unstage any changes to the protected file
+  git restore --staged "$PROTECTED_FILE"
+  echo "$PROTECTED_FILE has been excluded from this commit."
+fi
